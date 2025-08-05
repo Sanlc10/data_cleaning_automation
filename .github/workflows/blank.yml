@@ -21,7 +21,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Create token cache from secret
-        run: echo "${{ secrets.TOKEN_CACHE_BIN_CONTENT }}" > token_cache.bin
+        run: echo "${{ secrets.TOKEN_CACHE_BIN_CONTENT }}" | base64 --decode > token_cache.bin
 
       - name: Run the Python script
         env:
