@@ -6,31 +6,31 @@ import pandas as pd
 from dotenv import load_dotenv
 import atexit
 
-# --- 1. CONFIGURACIÓN INICIAL Y DE ENTORNO ---
-# Configura el logging para reducir el "ruido" de las librerías en producción.
+# --- 1. Initial configuration ---
+# Configure logging to reduce noise from production libraries.
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("msal").setLevel(logging.WARNING)
 
-# Carga las variables de entorno desde el archivo .env
+# Load environment variables from a .env file.
 load_dotenv()
 
-# --- 2. DEFINICIÓN DE RUTAS Y VARIABLES ---
-# Obtiene la ruta del directorio donde se encuentra este script.
-# Esto hace que las rutas de los archivos funcionen en cualquier sistema (local, Render, etc.).
+# --- 2. DEFINING PATHS AND VARIABLES ---
+# Gets the path to the directory where this script is located.
+# This makes file paths work on any system (local, Render, etc.).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_PATH = os.path.join(BASE_DIR, "downloads")
 CACHE_FILE = os.path.join(BASE_DIR, "token_cache.bin")
 
-# Carga las credenciales y configuraciones desde las variables de entorno.
+# Environment variables for authentication.
 CLIENT_ID = os.getenv("CLIENT_ID")
 TENANT_ID = os.getenv("TENANT_ID")
-USER_EMAIL = os.getenv("USER_EMAIL")  # Ej: "A830190951@my.uvm.edu.mx"
+USER_EMAIL = os.getenv("USER_EMAIL")
 
-# --- 3. AUTENTICACIÓN CON MSAL (Flujo no interactivo para servidores) ---
+# --- 3. AUTHENTICATION WITH MSAL (Non-interactive flow for servers) ---
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPE = ["Files.ReadWrite", "User.Read"]
 
-# Prepara la caché de tokens para guardar la sesión entre ejecuciones.
+# Prepare the token cache to save the session between executions.
 cache = msal.SerializableTokenCache()
 
 
@@ -40,17 +40,17 @@ def save_cache():
             cache_file.write(cache.serialize())
 
 
-atexit.register(save_cache)  # Guarda la caché al finalizar el script.
+atexit.register(save_cache)  # Save the cache after the script ends.
 
-# Carga la caché si ya existe.
+# Load the cache if it already exists.
 if os.path.exists(CACHE_FILE):
     with open(CACHE_FILE, "r") as cache_file:
         cache.deserialize(cache_file.read())
 
-# Crea una sesión de requests para asegurar un comportamiento de red no interactivo.
+# Create a request session to ensure non-interactive network behavior.
 http_session = requests.Session()
 
-# Inicializa el cliente de MSAL, pasándole la caché y la sesión de requests.
+# Initializes the MSAL client, passing it the cache and the request session.
 app = msal.PublicClientApplication(
     CLIENT_ID,
     authority=AUTHORITY,
@@ -58,35 +58,35 @@ app = msal.PublicClientApplication(
     http_client=http_session
 )
 
-# Intenta obtener el token de acceso de forma silenciosa usando la caché.
+# Attempts to silently obtain the access token using the cache.
 result = None
 accounts = app.get_accounts()
 if accounts:
-    print("✅ Cuenta encontrada en caché. Obteniendo token silenciosamente...")
+    print("✅ Account found in cache. Silently fetching token...")
     result = app.acquire_token_silent(scopes=SCOPE, account=accounts[0])
 else:
-    print("❌ ERROR: No se encontró ninguna cuenta en la caché.")
-    print("Asegúrate de haber subido un archivo 'token_cache.bin' válido a Render.")
+    print("❌ ERROR: No account found in cache.")
+    print("Make sure you have uploaded a 'token_cache.bin' file")
     exit()
 
 if not result:
-    print("❌ ERROR: No se pudo obtener token de acceso. El token de refresco pudo haber expirado.")
-    print("SOLUCIÓN: Ejecuta el script localmente una vez para generar un nuevo 'token_cache.bin' y actualiza el Secret File en Render.")
+    print("❌ ERROR: Failed to retrieve access token. The refresh token may have expired.")
+    print("SOLUTION: Run the script locally once to generate a new 'token_cache.bin' and update the Secret File in Render.")
     exit()
 
-# Extrae el token para usarlo en las llamadas a la API.
+# Extract the token for use in API calls.
 token = result["access_token"]
 headers = {'Authorization': f'Bearer {token}'}
-print("🔑 Autenticación exitosa.")
+print("🔑 Authentication successful.")
 
-# --- 4. LÓGICA PRINCIPAL DEL PROCESO ---
-print("⚙️ Iniciando proceso de descarga y limpieza de archivos...")
+# --- 4. MAIN LOGIC OF THE PROCESS ---
+print("⚙️ Starting the file download and cleanup process...")
 
-# Crea la carpeta de descargas si no existe.
+# Create the downloads folder if it doesn't exist.
 if not os.path.exists(DOWNLOAD_PATH):
     os.makedirs(DOWNLOAD_PATH)
 
-# Define la información de los archivos a procesar.
+# Defines the information of the files to be processed.
 files_to_process = [
     {
         "name": "file1.xlsx",
@@ -104,7 +104,7 @@ files_to_process = [
 
 dataframes = []
 
-# Bucle para descargar cada archivo y cargarlo en un DataFrame de pandas.
+# Loop to download each file and load it into a pandas DataFrame.
 for file_info in files_to_process:
     file_name = file_info["name"]
     file_url = file_info["url"]
@@ -114,45 +114,45 @@ for file_info in files_to_process:
 
     if response.status_code != 200:
         print(
-            f"❌ Error al descargar {file_name}: {response.status_code} - {response.text}")
+            f"❌ Error downloading {file_name}: {response.status_code} - {response.text}")
         continue
 
     local_file_path = os.path.join(DOWNLOAD_PATH, file_name)
     with open(local_file_path, 'wb') as f:
         f.write(response.content)
-    print(f"   -> Guardado en {local_file_path}")
+    print(f"   -> Saved in {local_file_path}")
 
-    # Lee el archivo Excel descargado y lo añade a la lista de DataFrames.
+    # Reads the downloaded Excel file and adds it to the list of DataFrames.
     df = pd.read_excel(local_file_path)
     dataframes.append(df)
 
-# Procesa los archivos solo si se descargó al menos uno.
+# Process files only if at least one has been downloaded.
 if dataframes:
-    print("📊 Combinando archivos descargados...")
+    print("📊 Merging downloaded files...")
     combined_df = pd.concat(dataframes, ignore_index=True)
-    print(f"   -> Forma del DataFrame combinado: {combined_df.shape}")
+    print(f"   -> Combined DataFrame shape: {combined_df.shape}")
 
-    print("🧼 Limpiando datos (eliminando duplicados y nulos)...")
+    print("🧼 Cleaning the data(droping duplicates and nulls)")
     cleaned_df = combined_df.drop_duplicates().dropna()
-    print(f"   -> Forma del DataFrame limpio: {cleaned_df.shape}")
+    print(f"   -> Clean DataFrame shape: {cleaned_df.shape}")
 
-    # Guarda el archivo limpio en la carpeta de descargas.
+    # Save the clean file to your downloads folder.
     cleaned_file_name = "combined_cleaned.xlsx"
     cleaned_file_path = os.path.join(DOWNLOAD_PATH, cleaned_file_name)
     cleaned_df.to_excel(cleaned_file_path, index=False)
-    print(f"💾 Archivo limpio guardado localmente en: {cleaned_file_path}")
+    print(f"💾 Clean file saved locally at: {cleaned_file_path}")
 
-    # Sube el archivo consolidado y limpio a OneDrive.
-    print(f"📤 Subiendo {cleaned_file_name} a OneDrive...")
+    # Upload the consolidated and cleaned file to OneDrive.
+    print(f"📤 Uploading {cleaned_file_name} to OneDrive...")
     upload_url = f"https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/drive/root:/Smart_Ops_Lab_Vosyn/clean_excel/{cleaned_file_name}:/content"
 
     with open(cleaned_file_path, 'rb') as f:
         upload_response = requests.put(upload_url, headers=headers, data=f)
 
     if upload_response.status_code in [200, 201]:
-        print("✅ ¡Proceso completado exitosamente! Archivo subido a OneDrive.")
+        print("✅ Process completed successfully! File uploaded to OneDrive.")
     else:
         print(
-            f"❌ Error subiendo el archivo limpio: {upload_response.status_code} - {upload_response.text}")
+            f"❌ Error uploading clean file: {upload_response.status_code} - {upload_response.text}")
 else:
-    print("⚠️ No se descargaron archivos. No hay datos para procesar.")
+    print("⚠️ No files downloaded. There is no data to process.")
